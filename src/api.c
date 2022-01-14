@@ -624,10 +624,10 @@ static gpointer bluez_handler_func(gpointer ptr)
 			ERROR("bluetooth_register_agent() failed");
 			goto err_no_agent;
 		}
-	} else {
-		// Let main process know initialization is done
-		signal_init_done(id, TRUE);
 	}
+
+	// Let main process know initialization is done
+	signal_init_done(id, TRUE);
 
 	// Cannot reference id after this point
 	g_atomic_rc_box_release(id);
