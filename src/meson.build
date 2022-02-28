@@ -14,6 +14,7 @@ if get_option('build-tester')
     executable('bluez-glib-test',
                'test.c',
                include_directories: inc,
-               dependencies: [systemd_dep, glib_deps, lib_dep])
+               dependencies: [systemd_dep, glib_deps, lib_dep],
+               install: true)
 endif
 

@@ -51,6 +51,7 @@ callback_list_t bluez_adapter_callbacks;
 callback_list_t bluez_device_callbacks;
 callback_list_t bluez_media_control_callbacks;
 callback_list_t bluez_media_player_callbacks;
+callback_list_t bluez_media_transport_callbacks;
 
 // The global handler thread and BlueZ state
 static GThread *g_bluez_thread;
@@ -175,7 +176,7 @@ static void run_media_callbacks(callback_list_t *callbacks,
 {
 	GSList *list;
 
-	if (!(endpoint || player))
+	if (!(adapter || device))
 		return;
 
 	g_mutex_lock(&callbacks->mutex);
@@ -185,9 +186,12 @@ static void run_media_callbacks(callback_list_t *callbacks,
 			if (player) {
 				bluez_media_player_event_cb_t cb = (bluez_media_player_event_cb_t) entry->callback;
 				(*cb)(adapter, device, player, event, properties, entry->user_data);
+			} else if (endpoint) {
+				bluez_media_transport_event_cb_t cb = (bluez_media_transport_event_cb_t) entry->callback;
+				(*cb)(adapter, device, endpoint, event, properties, entry->user_data);
 			} else {
 				bluez_media_control_event_cb_t cb = (bluez_media_control_event_cb_t) entry->callback;
-				(*cb)(adapter, device, endpoint, event, properties, entry->user_data);
+				(*cb)(adapter, device, event, properties, entry->user_data);
 			}
 		}
 	}
@@ -226,6 +230,14 @@ EXPORT void bluez_add_media_player_event_callback(bluez_media_player_event_cb_t 
 	callback_add(&bluez_media_player_callbacks, cb, user_data);
 }
 
+EXPORT void bluez_add_media_transport_event_callback(bluez_media_player_event_cb_t cb, gpointer user_data)
+{
+	if (!cb)
+		return;
+
+	callback_add(&bluez_media_transport_callbacks, cb, user_data);
+}
+
 static void mediaplayer1_set_path(struct bluez_state *ns, const char *path)
 {
 	if (ns->mediaplayer_path)
@@ -253,6 +265,18 @@ static void bluez_devices_signal_callback(GDBusConnection *connection,
 	INFO("signal=%s", signal_name);
 	DEBUG("parameters: %s", g_variant_print(parameters, TRUE));
 #endif
+
+	// Be paranoid to avoid any potential issues from unexpected signals,
+	// as glib seems to do some unexpected reuse of the D-Bus signal
+	// mechanism if there is more than one subscriber in the same process,
+	// and we will see signals we did not register for. :(
+	if (!((g_str_has_prefix(object_path, "/org/bluez/") &&
+	       g_strcmp0(interface_name, "org.freedesktop.DBus.Properties") == 0) ||
+	      (g_strcmp0(object_path, "/") == 0 &&
+	       g_strcmp0(interface_name, "org.freedesktop.DBus.ObjectManager") == 0))) {
+		// Not an expected signal
+		return;
+	}
 
 	if (!g_strcmp0(signal_name, "InterfacesAdded")) {
 
@@ -284,7 +308,7 @@ static void bluez_devices_signal_callback(GDBusConnection *connection,
 				DEBUG("media endpoint added!");
 				DEBUG("media endpoint path %s, key %s, endpoint %s",
 				      path, key, endpoint);
-				run_media_callbacks(&bluez_media_control_callbacks,
+				run_media_callbacks(&bluez_media_transport_callbacks,
 						    adapter,
 						    device,
 						    endpoint,
@@ -299,7 +323,7 @@ static void bluez_devices_signal_callback(GDBusConnection *connection,
 				gchar *adapter = bluez_return_adapter(path);
 				gchar *device = bluez_return_device(path);
 				gchar *player = find_index(path, 5);
-				DEBUG("media player removed!");
+				DEBUG("media player added!");
 				DEBUG("media player = %s", player);
 				run_media_callbacks(&bluez_media_player_callbacks,
 						    adapter,
@@ -388,6 +412,20 @@ static void bluez_devices_signal_callback(GDBusConnection *connection,
 			run_callbacks(&bluez_adapter_callbacks, adapter, NULL, BLUEZ_EVENT_CHANGE, var);
 			g_free(adapter);
 
+		} else if (!g_strcmp0(path, BLUEZ_MEDIACONTROL_INTERFACE)) {
+			gchar *adapter = bluez_return_adapter(object_path);
+			gchar *device = bluez_return_device(object_path);
+			DEBUG("media control changed!");
+			run_media_callbacks(&bluez_media_control_callbacks,
+					    adapter,
+					    device,
+					    NULL,
+					    NULL,
+					    BLUEZ_EVENT_CHANGE,
+					    var);
+			g_free(adapter);
+			g_free(device);
+
 		} else if (!g_strcmp0(path, BLUEZ_MEDIAPLAYER_INTERFACE)) {
 			gchar *adapter = bluez_return_adapter(object_path);
 			gchar *device = bluez_return_device(object_path);
@@ -411,12 +449,12 @@ static void bluez_devices_signal_callback(GDBusConnection *connection,
 			gchar *endpoint = bluez_return_endpoint(object_path);
 			DEBUG("media endpoint changed!");
 			DEBUG("media endpoint %s", endpoint);
-			run_media_callbacks(&bluez_media_control_callbacks,
+			run_media_callbacks(&bluez_media_transport_callbacks,
 					    adapter,
 					    device,
 					    endpoint,
 					    NULL,
-					    BLUEZ_EVENT_REMOVE,
+					    BLUEZ_EVENT_CHANGE,
 					    var);
 			g_free(adapter);
 			g_free(device);
@@ -1540,4 +1578,88 @@ EXPORT gboolean bluez_set_pincode(const char *pincode)
 	}
 
 	return rc;
+}
+
+EXPORT gboolean bluez_get_media_control_properties(const char *device, GVariant **reply)
+{
+	struct bluez_state *ns = bluez_get_state();
+	GVariant *properties = NULL;
+	GError *error = NULL;
+
+	if (!ns) {
+		ERROR("Invalid state");
+		return FALSE;
+	}
+	if (!reply)
+		return FALSE;
+
+	gchar *device_path = get_bluez_path(NULL, device);
+	properties = bluez_get_properties(ns,
+					  BLUEZ_AT_MEDIACONTROL,
+					  device_path,
+					  &error);
+	if (error) {
+		ERROR("bluez_get_properties error: %s", error->message);
+		g_clear_error(&error);
+		*reply = NULL;
+	}
+
+	// Pull properties out of tuple so caller does not have to
+	g_variant_get(properties, "(@a{sv})", reply);
+	g_variant_unref(properties);
+
+	return TRUE;
+}
+
+EXPORT gboolean bluez_get_media_player_properties(const char *device, GVariant **reply)
+{
+	struct bluez_state *ns = bluez_get_state();
+	GVariant *properties = NULL;
+	GError *error = NULL;
+
+	if (!ns) {
+		ERROR("Invalid state");
+		return FALSE;
+	}
+	if (!reply)
+		return FALSE;
+
+	gchar *player = NULL;
+	gchar *device_path = get_bluez_path(NULL, device);
+	if (device_path) {
+		// TODO: handle multiple players per device
+		GVariant *val = bluez_get_property(ns, BLUEZ_AT_MEDIACONTROL, device_path, "Player", NULL);
+		if (val) {
+			player = g_variant_get_string(val, NULL);
+			g_variant_unref(val);
+		}
+		if (!player)
+			player = g_strconcat(device_path, "/", BLUEZ_DEFAULT_PLAYER, NULL);
+
+		g_free(device_path);
+	} else {
+		player = g_strdup(ns->mediaplayer_path);
+	}
+
+	if (!player) {
+		ERROR("No path given");
+		return FALSE;
+	}
+
+	DEBUG("Using player %s", player);
+	properties = bluez_get_properties(ns,
+					  BLUEZ_AT_MEDIAPLAYER,
+					  player,
+					  &error);
+	if (error) {
+		ERROR("bluez_get_properties error: %s", error->message);
+		g_clear_error(&error);
+		*reply = NULL;
+	}
+
+	// Pull properties out of tuple so caller does not have to
+	g_variant_get(properties, "(@a{sv})", reply);
+	g_variant_unref(properties);
+
+	return TRUE;
 }

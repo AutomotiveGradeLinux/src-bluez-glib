@@ -75,10 +75,16 @@ typedef void (*bluez_device_event_cb_t)(gchar *adapter,
 
 typedef void (*bluez_media_control_event_cb_t)(gchar *adapter,
 					       gchar *device,
-					       gchar *endpoint,
 					       bluez_event_t event,
 					       GVariant *properties,
 					       gpointer user_data);
+
+typedef void (*bluez_media_transport_event_cb_t)(gchar *adapter,
+						 gchar *device,
+						 gchar *endpoint,
+						 bluez_event_t event,
+						 GVariant *properties,
+						 gpointer user_data);
 
 typedef void (*bluez_media_player_event_cb_t)(gchar *adapter,
 					      gchar *device,
@@ -103,6 +109,8 @@ void bluez_add_device_event_callback(bluez_device_event_cb_t cb, gpointer user_d
 void bluez_add_media_control_event_callback(bluez_media_control_event_cb_t cb, gpointer user_data);
 
 void bluez_add_media_player_event_callback(bluez_media_player_event_cb_t cb, gpointer user_data);
+
+void bluez_add_media_transport_event_callback(bluez_media_transport_event_cb_t cb, gpointer user_data);
 
 void bluez_add_agent_event_callback(bluez_agent_event_cb_t cb, gpointer user_data);
 
@@ -153,6 +161,10 @@ gboolean bluez_device_remove(const char *device);
 gboolean bluez_device_avrcp_controls(const char *device, bluez_media_control_t action);
 
 gboolean bluez_set_pincode(const char *pincode);
+
+gboolean bluez_get_media_control_properties(const char *device, GVariant **reply);
+
+gboolean bluez_get_media_player_properties(const char *device, GVariant **reply);
 
 #ifdef __cplusplus
 } // extern "C"

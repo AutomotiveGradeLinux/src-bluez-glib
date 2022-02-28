@@ -229,6 +229,8 @@ bluez_call_async(struct bluez_state *ns,
 	}
 	cpw->callback = callback;
 
+	DEBUG("calling %s:%s:%s on %s:%s",
+	      interface, method, params, BLUEZ_SERVICE, path);
 	g_dbus_connection_call(ns->conn,
 			       BLUEZ_SERVICE, path, interface, method, params,
 			       NULL,	/* reply type */
@@ -281,6 +283,8 @@ GVariant *bluez_get_properties(struct bluez_state *ns,
 		return NULL;
 	}
 
+	DEBUG("calling %s:%s:%s on %s:%s",
+	      interface, method, interface2, BLUEZ_SERVICE, path);
 	reply = g_dbus_connection_call_sync(ns->conn,
 					    BLUEZ_SERVICE, path, interface, method,
 					    interface2 ? g_variant_new("(s)", interface2) : NULL,
@@ -443,8 +447,8 @@ gboolean bluez_autoconnect(gpointer data)
 
 		gboolean paired = FALSE;
 		if (g_variant_dict_lookup(props_dict, "Paired", "b", &paired) && paired) {
-			gchar *path = g_strconcat("/org/bluez/", adapter, "/", key, NULL);
-			GVariant *connect_reply = bluez_call(ns, "device", path, "Connect", NULL, NULL);
+			gchar *path = g_strconcat(adapter, "/", key, NULL);
+			GVariant *connect_reply = bluez_call(ns, BLUEZ_AT_DEVICE, path, "Connect", NULL, NULL);
 			g_free(path);
 			if (!connect_reply)
 				continue;
