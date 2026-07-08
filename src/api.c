@@ -1531,7 +1531,7 @@ EXPORT gboolean bluez_device_avrcp_controls(const char *device,
 			g_variant_unref(val);
 		}
 		if (!player)
-			player = g_strconcat(device_path, "/", BLUEZ_DEFAULT_PLAYER, NULL);
+			player = g_strconcat(device_path, "/avrcp/", BLUEZ_DEFAULT_PLAYER, NULL);
 
 		g_free(device_path);
 	} else {
@@ -1634,7 +1634,7 @@ EXPORT gboolean bluez_get_media_player_properties(const char *device, GVariant *
 			g_variant_unref(val);
 		}
 		if (!player)
-			player = g_strconcat(device_path, "/", BLUEZ_DEFAULT_PLAYER, NULL);
+			player = g_strconcat(device_path, "/avrcp/", BLUEZ_DEFAULT_PLAYER, NULL);
 
 		g_free(device_path);
 	} else {
